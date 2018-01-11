@@ -1,0 +1,154 @@
+network net ( outbound = 'yes' and outports = '80,22' )
+
+system nodeOpenCA (
+    cpu.arch = 'x86_64' and
+    cpu.count >= 1 and
+    memory.size >= 512m and
+    net_interface.0.connection = 'net' and
+    net_interface.0.dns_name = 'nodeCA' and
+    disk.0.os.name = 'linux' and
+    disk.0.os.flavour = 'scientific' and
+    disk.0.os.version >= '6.6'
+)
+
+configure nodeRequirements (
+@begin
+---
+  - tasks:
+    - name: Set authorized key took from file
+      authorized_key:
+        user: root
+        state: present
+        key: "FESSHKEY"
+
+    - name: Set scripts directory
+      file: 
+        path: /home/GaaS-Scripts
+        state: directory
+
+    - name: Download scripts for socket
+      get_url:
+        url: https://gist.githubusercontent.com/MrChusi/75a71ae88270074b8d40af578ff2a42e/raw/066cdc88d45464eefec7d41473cbb683230de2e5/socketCA-FE.py
+        dest: /home/GaaS-Scripts/socketCA-FE.py
+        mode: 0771 
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/e8cb725dc141caa1ed8cab77cf85c8df/raw/34aff2a2c18c7e72ccbf710722b67a0fa8c00b2d/createNodeCredentials.sh
+        dest: /home/GaaS-Scripts/createNodeCredentials.sh
+        mode: 0771
+
+    - name: Creating user
+      user: name=openca   password=openca
+
+    - name: Install python ZMQ module 
+      yum: state=latest update_cache=yes name=python-zmq
+
+    - name: Open port 80 and 443 for web server,and GaaS socket port
+      shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 80 -j ACCEPT
+    - shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 443 -j ACCEPT
+    - shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 8111 -j ACCEPT
+    - shell: /etc/init.d/iptables save
+    - shell: /etc/init.d/iptables restart
+
+@end
+)
+
+configure installOpenCA (
+@begin
+---
+  - tasks:
+    - name: Installing perl requisites
+      yum: state=latest update_cache=yes name={{ item }}
+      with_items:
+      - openssl
+      - openssl-devel
+      - mod_ssl
+      - mysql 
+      - mysql-server
+      - mysql-devel 
+      - MySQL-python
+      - perl 
+      - perl-core
+      - perl-CPAN
+      - perl-devel
+      - perl-XML-Parser
+      - expat  
+      - expat-devel 
+
+    - name: Install perl modules management tool
+      shell: cpan App::cpanminus
+
+    - name: Download and Install perl modules
+      cpanm: name=XML::Parser
+      cpanm: name=XML::Twig
+      cpanm: name=GBARR/Convert-BER-1.32.tar.gz
+      cpanm: name=MIME::Base64
+      cpanm: name=URI
+      cpanm: name=Digest::MD5
+      cpanm: name=perl::ldap
+      cpanm: name=MISHIKAL/Net-LDAPapi-3.0.4.tar.gz
+      cpanm: name=openca::tristatecgi
+      cpanm: name=openca::configuration
+      cpanm: name=DBD::mysql
+
+    - name: Start and configure Mysql service
+      shell: /etc/init.d/mysqld start
+    - shell: /usr/bin/mysqladmin -u root password 'mysqladmin'
+
+    - name: Create OpenCA Mysql database
+      mysql_db: name=openca login_user=root login_password="mysqladmin" state=present
+
+    - name: Create OpenCA DB User and give privileges
+      mysql_user: name=openca login_user=root login_password="mysqladmin" password=mysqladmin priv=openca.*:ALL state=present
+
+    - name: Download OpenCA Tools
+      get_url: url=http://mirror.thekeelecentre.com/pub/openca/openca-tools/releases/v1.3.1/sources/openca-tools-1.3.1.tar.gz dest=/tmp/openca-tools-1.3.1.tar.gz
+
+    - name: Download OpenCA Base common package
+      get_url: url=http://mirror.thekeelecentre.com/pub/openca/openca-base/releases/v1.5.1/sources/openca-base-1.5.1.tar.gz dest=/tmp/openca-base-1.5.1.tar.gz
+
+    - name: Extract OpenCA Tools and Base packages
+      unarchive: src=/tmp/openca-tools-1.3.1.tar.gz dest=/tmp/
+    - unarchive: src=/tmp/openca-base-1.5.1.tar.gz dest=/tmp/
+
+    - name: Configure and instal OpenCA Tools
+      shell: ./configure >> configurelog.txt chdir=/tmp/openca-tools-1.3.1/
+    - make: chdir=/tmp/openca-tools-1.3.1/ target=clean
+    - make: chdir=/tmp/openca-tools-1.3.1/
+    - make: chdir=/tmp/openca-tools-1.3.1/ target=install
+
+    - name: Configure and instal OpenCA Base
+      shell: ./configure --prefix=/opt/openca --with-httpd-user=apache --with-httpd-group=apache --with-httpd-fs-prefix=/var/www --with-ca-organization="MasterCPD" --with-ca-country=ES --with-ca-locality=Valencia --with-db-name=openca --with-db-host=localhost --with-db-user=openca --with-db-passwd="mysqladmin" --with-db-type=mysql >> configurelog.txt chdir=/tmp/openca-base-1.5.1/
+    - make: chdir=/tmp/openca-base-1.5.1/ target=clean
+    - make: chdir=/tmp/openca-base-1.5.1/
+    - shell: make install-offline install-online chdir=/tmp/openca-base-1.5.1/
+     
+    - name: Create link for OpenCA Service
+      shell: ln -s /opt/openca/etc/init.d/openca /etc/init.d/openca
+
+    - name: Setup OpenCA parameters
+      shell: /opt/openca/bin/openca-setpasswd 'admin'
+    - shell: /opt/openca/etc/openca/configure_etc.sh
+
+    - name: Fix the TEMPNEW problem
+      shell: grep -rl 'TEMP$status' ./ | xargs sed -i 's/TEMP$status/$status/g' chdir=/opt/openca/lib/openca/cmds/
+
+    - name: Start OpenCA and Apache Webserver services
+      service: name=httpd state=started
+    - service: name=openca state=started
+
+    - name: Launch socket
+      command: python /home/GaaS-Scripts/socketCA-FE.py
+      args:
+        chdir: /home/GaaS-Scripts/
+      async: 31536000
+      poll: 0   
+@end
+)
+
+
+contextualize ( 
+    system nodeOpenCA configure nodeRequirements step 1
+    system nodeOpenCA configure installOpenCA step 2
+)
+
+deploy nodeOpenCA 1

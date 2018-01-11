@@ -1,0 +1,207 @@
+network net ( outbound = 'yes' and outports = '22' )
+
+system nodeFrontend (
+    cpu.arch = 'x86_64' and
+    cpu.count >= 1 and
+    memory.size >= 512m and
+    net_interface.0.connection = 'net' and
+    net_interface.0.dns_name = 'frontNode' and
+    disk.0.os.name = 'linux' and
+    disk.0.os.flavour = 'ubuntu' and
+    disk.0.os.version >= '14.04'
+)
+
+configure configureFrontend (
+@begin
+---
+  - tasks:
+    - name: Installing required software
+      apt: state=latest update_cache=yes name={{ item }}
+      with_items:
+      - rsync
+    
+    - name: Installing required python modules
+      pip: state=latest name={{ item }}
+      with_items: 
+      - pip
+      - setuptools
+      - zmq
+      - im_client
+
+    - name: Create hosts file
+      shell: echo "127.0.0.1 localhost localhost.localdomain" > /home/hosts
+    - shell: echo "{{IM_NODE_HOSTNAME}} {{IM_NODE_NET_0_IP}}" >> /home/hosts
+
+    - name: Set hosts owner
+      file: 
+        path: /home/hosts
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Create GaaS scripts folder
+      file:
+        path: /home/ubuntu/GaaS-Scripts
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Download scripts for sockets
+      get_url:
+        url: https://gist.githubusercontent.com/MrChusi/76f8ab27133e097f53130c51022eb3e5/raw/f74cb5e5a3b0830e433f0b91aa6cf3ab0476b902/socketFE-CA.py
+        dest: /home/ubuntu/GaaS-Scripts/socketFE-CA.py
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/33e878f5c14a5a91669ffbbaf0d2bd07/raw/ba9aa4758797a65873850ba8cb38fb21c3e7e9fc/socketFE-GLO.py
+        dest: /home/ubuntu/GaaS-Scripts/socketFE-GLO.py
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Download node recipes
+      get_url:
+        url: https://gist.githubusercontent.com/MrChusi/545f5dcefe60b813c865f9012bd6a836/raw/7fa16c967ce2c474b81afaab24006da31e2e0574/globusNode-Final.radl
+        dest: /home/ubuntu/GaaS-Scripts/globusNode.radl
+        owner: ubuntu
+        group: ubuntu
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/8873b350ebce624be20cce886112d7d7/raw/8d836b775c5f5682cfa0f8ceb1112c5ab252a91d/nodeCA-Final.radl
+        dest: /home/ubuntu/GaaS-Scripts/nodeCA.radl
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Download management scripts
+      get_url:
+        url: https://gist.githubusercontent.com/MrChusi/2bb50724afb0199c97bf815db5120ad8/raw/94fca924aacc22dc7203d7b645f8cd3d993325a3/manageHosts.sh
+        dest: /home/ubuntu/GaaS-Scripts/manageHosts.sh
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/42c9e820dbdd6f435296f20e5b44189d/raw/6bd273ed9d15ce4da0b5092888405c8f405a1778/gaasInterface.py
+        dest: /home/ubuntu/GaaS-Scripts/gaasInterface.py
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/db50b8a90bae51a138924882886e742b/raw/48d172a1693c6eb76e6e9a7657a6e05939146d51/syncCredentials.sh
+        dest: /home/ubuntu/GaaS-Scripts/syncCredentials.sh
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+      
+
+    - name: Generate SSH Key
+      user:
+        name: ubuntu
+        generate_ssh_key: yes
+
+    - name: Generate SSH Config file
+      lineinfile:
+        dest: /home/ubuntu/.ssh/config
+        state: present
+        create: yes
+        line: 'StrictHostKeyChecking=no'
+
+    - name: Create Rsync temp files folder
+      file: 
+        path: /tmp/rsyncFiles 
+        owner: ubuntu
+        group: ubuntu
+        state: directory
+
+    - name: Create config file and insert port values
+      ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: generalConfig
+        option: nodesnum
+        value: 0
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: generalConfig
+        option: casocket
+        value: 8111
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: generalConfig
+        option: globussocket
+        value: 8112
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: nodes
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: cas
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: status
+        option: gridactive
+        value: 0
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: status
+        option: globusinfid
+        value: 0
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: status
+        option: cainfid
+        value: 0
+    - ini_file:
+        dest: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        section: status
+        option: currentca
+        value: 9999
+
+    - name: Set config file owner
+      file: 
+        path: /home/ubuntu/GaaS-Scripts/GaaS.cfg
+        owner: ubuntu
+        group: ubuntu
+@end
+)
+
+configure dockerizeIM (
+@begin
+---
+  - tasks:
+    - name: Installing required software
+      apt: state=latest update_cache=yes name={{ item }}
+      with_items:
+      - apt-transport-https
+      - ca-certificates
+
+    - name: Installing prerequisites for docker
+      shell: apt-key adv --keyserver hkp://ha.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
+    - shell: echo "deb https://apt.dockerproject.org/repo ubuntu-trusty main" | sudo tee /etc/apt/sources.list.d/docker.list
+
+    - name: Installing docker
+      apt: state=latest update_cache=yes name=docker-engine
+
+    - name: Start docker service
+      service: name=docker state=started
+
+    - pip: state=latest name=docker-py
+
+    - name: Deploy IM docker container
+      docker_container:
+        name: im 
+        image: grycap/im
+        volumes:
+          - "/home/ubuntu/.ssh/id_rsa.pub:/home/frontKey.pub"
+        ports:
+          - "8899:8899"
+          - "8800:8800"
+@end
+)
+
+
+contextualize (
+    system nodeFrontend configure configureFrontend
+    system nodeFrontend configure dockerizeIM
+)
+
+deploy nodeFrontend 1

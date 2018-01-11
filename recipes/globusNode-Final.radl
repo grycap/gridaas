@@ -1,0 +1,104 @@
+network net ( outbound = 'yes' and outports = '22' )
+
+network globusNet ( outbound = 'no' and outports = '8112' )
+
+system nodeGlobus (
+    cpu.arch = 'x86_64' and
+    cpu.count >= 1 and
+    memory.size >= 512m and
+    net_interface.0.connection = 'globusNet' and
+    net_interface.0.dns_name = 'globusNode#N#.mastercpd.es' and
+    net_interface.1.connection = 'net' and
+    net_interface.1.dns_name = 'node-#N#' and
+    disk.0.os.name = 'linux' and
+    disk.0.os.flavour = 'ubuntu' and
+    disk.0.os.version >= '14.04'
+)
+
+configure configureGlobus (
+@begin
+---
+  - tasks:
+    - name: Set authorized key took from file
+      authorized_key:
+        user: ubuntu
+        state: present
+        key: "FESSHKEY"
+
+    - name: Install python ZMQ module 
+      apt: state=latest update_cache=yes name=python-zmq
+
+    - name: Download Globus Toolkit repo file
+      get_url: url=http://www.globus.org/ftppub/gt6/installers/repo/globus-toolkit-repo%5flatest%5fall.deb dest=/tmp/globus-toolkit-repo_latest_all.deb
+    
+    - name: Add Globus repository
+      shell: /usr/bin/dpkg -i /tmp/globus-toolkit-repo_latest_all.deb
+    
+    - name: Install Globus packages
+      apt: state=latest update_cache=yes name={{ item }}
+      with_items:
+      - globus-gridftp
+      - globus-gram5
+      - globus-gsi 
+      - globus-data-management-server
+      - globus-data-management-client
+      - globus-resource-management-server
+      - globus-resource-management-client
+
+
+    - name: Open ports for Globus Services and zmq socket
+      shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 22 -j ACCEPT
+    - shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 2119 -j ACCEPT
+    - shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 2811 -j ACCEPT
+    - shell: iptables -I INPUT -p tcp -m state --state NEW -m tcp --dport 8112 -j ACCEPT
+
+    - name: Set directories
+      file: 
+        path: /etc/grid-security
+        owner: ubuntu
+        group: ubuntu
+        recurse: yes
+    - file: 
+        path: /var/log
+        owner: ubuntu
+        group: ubuntu
+    - file:
+        path: /home/ubuntu/GaaS-Scripts
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Download script for socket
+      get_url:
+        url: https://gist.githubusercontent.com/MrChusi/c9c691021fcd3413024af9c89c7b0953/raw/2f7866e7c82166bab07fb5bbf5f9bbadea51fc32/socketGLO-FE.py
+        dest: /home/ubuntu/GaaS-Scripts/socketGLO-FE.py
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+
+    - get_url:
+        url: https://gist.githubusercontent.com/MrChusi/2bb50724afb0199c97bf815db5120ad8/raw/94fca924aacc22dc7203d7b645f8cd3d993325a3/manageHosts.sh
+        dest: /home/ubuntu/GaaS-Scripts/manageHosts.sh
+        mode: 0771
+        owner: ubuntu
+        group: ubuntu
+
+
+    - name: Add entry for globus host to grid-mapfile
+      shell: grid-mapfile-add-entry -dn "/C=ES/O=MasterCPD/CN=$(cat /etc/hostname)" -ln ubuntu
+
+    - name: Launch socket
+      command: python /home/ubuntu/GaaS-Scripts/socketGLO-FE.py
+      args:
+        chdir: /home/ubuntu/GaaS-Scripts/
+      async: 31536000
+      poll: 0
+@end
+)
+
+
+contextualize (
+    system nodeGlobus configure configureGlobus
+)
+
+deploy nodeGlobus @input.NumNodes@
