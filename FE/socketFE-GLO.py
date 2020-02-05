@@ -3,6 +3,7 @@ import logging
 import ConfigParser
 import zmq
 
+
 # Global variables
 CFG_PATH = '/home/ubuntu/GaaS-Scripts/GaaS.cfg'
 CFG_SECT_GENERAL = 'generalConfig'
