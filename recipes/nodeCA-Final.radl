@@ -10,7 +10,7 @@ system nodeOpenCA (
     disk.0.os.flavour = 'scientific' and
     disk.0.os.version >= '6.6'
 )
-
+ 
 configure nodeRequirements (
 @begin
 ---
