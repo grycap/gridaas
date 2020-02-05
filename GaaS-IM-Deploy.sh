@@ -1,6 +1,7 @@
 #!/bin/bash
 line='--------------------------------------------------------'
 
+
 # Loop for print interface
 echo -e "$line \n Welcome to GaaS deployment interface! \n $line"
 
