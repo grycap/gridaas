@@ -3,6 +3,7 @@ import logging
 import ConfigParser
 import zmq
 
+
 # message syntax: "Credentials request: <credNum>"
 # credNum = Number of credentials to create
 
