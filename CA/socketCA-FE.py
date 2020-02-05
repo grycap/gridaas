@@ -3,6 +3,7 @@ import os
 import logging
 import zmq
 
+
 # Functions definition
 def getNextNewNodeCredentials():
     if os.path.isdir("/home/globusFiles/nodes/"):
