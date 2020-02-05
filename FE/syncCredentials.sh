@@ -1,5 +1,6 @@
 #!/bin/bash
 # Check arguments
+
 if [ "$#" -eq 3 ] 
 then
     # Get number of credentials and starting number node
