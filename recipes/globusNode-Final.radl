@@ -1,5 +1,5 @@
 network net ( outbound = 'yes' and outports = '22' )
-
+ 
 network globusNet ( outbound = 'no' and outports = '8112' )
 
 system nodeGlobus (
