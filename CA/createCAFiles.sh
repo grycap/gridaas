@@ -4,6 +4,7 @@ mkdir /home/globusFiles
 mkdir /home/globusFiles/CA
 mkdir /home/globusFiles/nodes
 
+
 # Get certificate subject data and split in lines
 str=$(openssl x509 -in /opt/openca/var/openca/crypto/chain/cacert.crt -noout -subject | tr '/' $'\n')
 hash=$(openssl x509 -hash -noout < /opt/openca/var/openca/crypto/cacerts/cacert.txt)
