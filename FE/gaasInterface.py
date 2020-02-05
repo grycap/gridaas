@@ -197,6 +197,7 @@ def initialDeployment(num):
 
     logging.info('Routine for initial deployment finished successfully')
 
+    
 def deleteInfrastructure():
     """Method for delete entire infrastructure"""
     # Clean /etc/hosts file from FE Node
