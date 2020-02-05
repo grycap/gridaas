@@ -12,6 +12,7 @@ function removehost() {
     else
         echo "$HOSTNAME was not found in hosts file";
     fi
+    
 }
 
 function addhost() {
