@@ -64,4 +64,4 @@ while True:
     else:
         socketREP.send("ERROR Wrong message")
         logging.error('Wrong message recieved')
-
+ 
